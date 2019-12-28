@@ -1,5 +1,5 @@
 {
-    "name": "uonsoftware/laravel-auth",
+    "name": "malusev/laravel-auth",
     "description": "API JWT authentication system for laravel",
     "type": "library",
     "license": "Apache-2.0",
