@@ -5,13 +5,13 @@ namespace UonSoftware\LaraAuth\Http\Controllers;
 use Throwable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
+use UonSoftware\RefreshTokens\Contracts\Storage as RefreshTokensStorage;
 use UonSoftware\LaraAuth\Contracts\LoginContract;
 use UonSoftware\LaraAuth\Http\Requests\LoginRequest;
 use UonSoftware\LaraAuth\Exceptions\PasswordUpdateException;
 use UonSoftware\RefreshTokens\Exceptions\InvalidRefreshToken;
 use UonSoftware\RefreshTokens\Exceptions\RefreshTokenExpired;
 use UonSoftware\RefreshTokens\Exceptions\RefreshTokenNotFound;
-use UonSoftware\RefreshTokens\Contracts\RefreshTokenRepository;
 use UonSoftware\LaraAuth\Exceptions\EmailIsNotVerifiedException;
 use UonSoftware\LaraAuth\Exceptions\InvalidCredentialsException;
 use UonSoftware\LaraAuth\Http\Requests\RevokeRefreshTokenRequest;
@@ -19,37 +19,18 @@ use UonSoftware\LaraAuth\Http\Requests\RevokeRefreshTokenRequest;
 class LoginController extends Controller
 {
     /**
-     * @var \UonSoftware\LaraAuth\Contracts\LoginContract
-     */
-    private $loginService;
-
-    /**
-     * @var \UonSoftware\RefreshTokens\Contracts\RefreshTokenRepository
-     */
-    private $refreshTokenRepository;
-
-
-    /**
-     * LoginController constructor.
+     * Login the user and return the Json Web Token
      *
-     * @param \UonSoftware\LaraAuth\Contracts\LoginContract               $loginService
-     * @param \UonSoftware\RefreshTokens\Contracts\RefreshTokenRepository $refreshTokenRepository
-     */
-    public function __construct(LoginContract $loginService, RefreshTokenRepository $refreshTokenRepository)
-    {
-        $this->loginService = $loginService;
-        $this->refreshTokenRepository = $refreshTokenRepository;
-    }
-
-    /**
-     * @param \UonSoftware\LaraAuth\Http\Requests\LoginRequest $request
+     * @param  \UonSoftware\LaraAuth\Http\Requests\LoginRequest  $request
+     *
+     * @param  \UonSoftware\LaraAuth\Contracts\LoginContract  $loginService
      *
      * @return \Illuminate\Http\JsonResponse
      */
-    public function login(LoginRequest $request): ?JsonResponse
+    public function login(LoginRequest $request, LoginContract $loginService): ?JsonResponse
     {
         try {
-            return response()->json($this->loginService->login($request->validated()));
+            return response()->json($loginService->login($request->validated()));
         } catch (InvalidCredentialsException | PasswordUpdateException | EmailIsNotVerifiedException $e) {
             return response()->json(['message' => $e->getMessage()], 401);
         } catch (Throwable $e) {
@@ -57,15 +38,15 @@ class LoginController extends Controller
         }
     }
 
-    public function revokeRefreshToken(RevokeRefreshTokenRequest $request)
+    public function revokeRefreshToken(RevokeRefreshTokenRequest $request, RefreshTokensStorage $storage)
     {
         try {
             $userPrimaryKey = config('refresh_token.user.id');
             $userId = $request->user()->{$userPrimaryKey};
             $refreshToken = $request->input('refresh_token');
-            $isDeleted = $this->refreshTokenRepository->revokeToken($refreshToken, $userId);
+            $isDeleted = $storage->revoke($refreshToken, $userId);
 
-            if($isDeleted === true) {
+            if ($isDeleted === true) {
                 return response()->json(null, 204);
             }
             return response()->json(['message' => 'Refresh token doesn\'t belong to you'], 401);
@@ -76,6 +57,5 @@ class LoginController extends Controller
         } catch (Throwable $e) {
             return response()->json(['message' => 'An error has occurred'], 500);
         }
-
     }
 }

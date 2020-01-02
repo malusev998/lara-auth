@@ -22,10 +22,7 @@ return [
             'field_on_model'     => 'password',
             'field_from_request' => 'password',
         ],
-        'email_verification' => [
-            'field' => 'email_activated_at',
-            'check' => true,
-        ],
+        'email_verification' => 'email_activated_at',
         'search'             => [
             [
                 'field'    => 'email',

@@ -5,10 +5,13 @@ namespace UonSoftware\LaraAuth\Services;
 use Closure;
 use TypeError;
 use Tymon\JWTAuth\JWTAuth;
+use Illuminate\Auth\Events\Failed;
+use Illuminate\Auth\Events\Attempting;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 use Illuminate\Contracts\Hashing\Hasher;
-use UonSoftware\LaraAuth\Events\LoginEvent;
+use Illuminate\Auth\Events\Authenticated;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use UonSoftware\LaraAuth\Contracts\LoginContract;
 use Illuminate\Contracts\Config\Repository as Config;
 use UonSoftware\LaraAuth\Http\Resources\User as UserResource;
@@ -61,12 +64,12 @@ class LoginService implements LoginContract
     /**
      * LoginService constructor.
      *
-     * @param \Illuminate\Contracts\Hashing\Hasher                       $hasher
-     * @param \UonSoftware\LaraAuth\Contracts\UpdateUserPasswordContract $passwordContract
-     * @param \Tymon\JWTAuth\JWTAuth                                     $jwtAuth
-     * @param RefreshTokenGenerator                                      $refreshTokenGenerator
-     * @param \Illuminate\Contracts\Config\Repository                    $config
-     * @param \Illuminate\Contracts\Events\Dispatcher                    $eventDispatcher
+     * @param  \Illuminate\Contracts\Hashing\Hasher  $hasher
+     * @param  \UonSoftware\LaraAuth\Contracts\UpdateUserPasswordContract  $passwordContract
+     * @param  \Tymon\JWTAuth\JWTAuth  $jwtAuth
+     * @param  RefreshTokenGenerator  $refreshTokenGenerator
+     * @param  \Illuminate\Contracts\Config\Repository  $config
+     * @param  \Illuminate\Contracts\Events\Dispatcher  $eventDispatcher
      */
     public function __construct(
         Hasher $hasher,
@@ -90,22 +93,23 @@ class LoginService implements LoginContract
      */
     public function login(array $login, ?Closure $additionalChecks = null): array
     {
+        $this->eventDispatcher->dispatch(new Attempting('api', $login, false));
         $user = $this->getUser($login);
 
-        $this->checkPassword($user, $login);
-
         $this->checkEmailVerification($user);
+
+        $this->checkPassword($user, $login);
 
         if ($additionalChecks !== null) {
             $additionalChecks($user);
         }
 
-        [1 => $refreshToken] = $this->refreshTokenGenerator->generateNewRefreshToken(
+        ['signed' => $refreshToken] = $this->refreshTokenGenerator->generateNewRefreshToken(
             null,
             $user->getAuthIdentifier()
         );
-        $userResource = $this->config->get('lara_auth.user_resource') ?? UserResource::class;
-        $this->eventDispatcher->dispatch(new LoginEvent($user));
+        $userResource = $this->config->get('lara_auth.user_resource', UserResource::class);
+        $this->eventDispatcher->dispatch(new Authenticated('api', $user));
         return [
             'user' => new $userResource($user),
             'auth' => [
@@ -126,7 +130,7 @@ class LoginService implements LoginContract
      *
      * @throws \Throwable
      *
-     * @param array $login
+     * @param  array  $login
      *
      * @return Authenticatable&JWTSubject
      */
@@ -139,9 +143,8 @@ class LoginService implements LoginContract
             ['field' => $field, 'operator' => $operator] = $filter;
             $where[] = [$field, $operator, $login[$field]];
         }
-        $userModel = $config['user_model'] ?? '\App\User';
+        $userModel = $this->config->get('lara_auth.user_model', '\App\User');
 
-        /**  $user */
         $user = $userModel::query()
             ->where($where)
             ->firstOrFail();
@@ -159,13 +162,15 @@ class LoginService implements LoginContract
      * if password is ok then this method will perform the checking if the
      * database hash needs rehashing, if it needs rehashing it will be rehashed
      *
+     * @throws \Throwable
      * @throws \UonSoftware\LaraAuth\Exceptions\InvalidCredentialsException
+     * @throws \UonSoftware\LaraAuth\Exceptions\NullReferenceException
      * @throws \UonSoftware\LaraAuth\Exceptions\PasswordUpdateException
-     *
-     * @param Authenticatable&JWTSubject $user
-     * @param array                      $login
-     *
      * @retrun void
+     *
+     * @param  Authenticatable&JWTSubject  $user
+     * @param  array  $login
+     *
      */
     protected function checkPassword($user, array $login): void
     {
@@ -175,6 +180,7 @@ class LoginService implements LoginContract
             ->get('lara_auth.user.password.field_from_request');
 
         if (!$this->hasher->check($login[$passwordOnRequest], $user->{$passwordOnModel})) {
+            $this->eventDispatcher->dispatch(new Failed('api', $user, $login));
             throw new InvalidCredentialsException();
         }
 
@@ -183,6 +189,7 @@ class LoginService implements LoginContract
                 $user,
                 $login[$passwordOnRequest]
             )) {
+            $this->eventDispatcher->dispatch(new Failed('api', $user, $login));
             throw new PasswordUpdateException();
         }
     }
@@ -194,16 +201,15 @@ class LoginService implements LoginContract
      *
      * @throws \UonSoftware\LaraAuth\Exceptions\EmailIsNotVerifiedException
      *
-     * @param Authenticatable&JWTSubject $user
+     * @param  Authenticatable&JWTSubject  $user
      *
      * @return void
      */
     protected function checkEmailVerification($user): void
     {
-        $emailVerificationField = $this->config->get('lara_auth.user.email_verification.field');
-        $shouldCheckEmailVerification = $this->config->get('lara_auth.user.email_verification.check');
+        $emailVerificationField = $this->config->get('lara_auth.user.email_verification');
 
-        if ($shouldCheckEmailVerification === true && $user->{$emailVerificationField} === null) {
+        if ($user instanceof MustVerifyEmail && $user->{$emailVerificationField} === null) {
             throw new EmailIsNotVerifiedException();
         }
     }

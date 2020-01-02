@@ -6,6 +6,7 @@ namespace UonSoftware\LaraAuth\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Contracts\Hashing\Hasher;
+use Illuminate\Auth\Events\PasswordReset;
 use Illuminate\Config\Repository as Config;
 use UonSoftware\LaraAuth\Events\PasswordChangedEvent;
 use UonSoftware\LaraAuth\Exceptions\NullReferenceException;
@@ -65,10 +66,12 @@ class UpdateUserPasswordService implements UpdateUserPasswordContract
 
         $hash = $this->hasher->make($newPassword);
         $userModel = $this->config->get('lara_auth.user_model');
+
         if ($user instanceof $userModel) {
             $user->password = $hash;
             $user->saveOrFail();
             $this->eventDispatcher->dispatch(new PasswordChangedEvent($user));
+            $this->eventDispatcher->dispatch(new PasswordReset($user));
             return true;
         }
 

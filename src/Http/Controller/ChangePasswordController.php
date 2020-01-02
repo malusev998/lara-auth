@@ -2,60 +2,30 @@
 
 namespace UonSoftware\LaraAuth\Http\Controllers;
 
+use Throwable as ThrowableAlias;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
-use Tymon\JWTAuth\Manager as JwtManager;
-use UonSoftware\LaraAuth\Dto\PasswordReset;
-use Tymon\JWTAuth\Exceptions\PayloadException;
 use Illuminate\Contracts\Config\Repository as Config;
 use UonSoftware\LaraAuth\Events\RequestNewPasswordEvent;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use UonSoftware\LaraAuth\Http\Requests\NewPasswordRequest;
-use UonSoftware\LaraAuth\Contracts\ChangePasswordContract;
-use UonSoftware\LaraAuth\Exceptions\PasswordUpdateException;
+use UonSoftware\LaraAuth\Exceptions\NullReferenceException;
 use UonSoftware\LaraAuth\Http\Requests\ChangePasswordRequest;
-use Illuminate\Contracts\Events\Dispatcher as EventDispatcher;
+use UonSoftware\LaraAuth\Contracts\UpdateUserPasswordContract;
 
 class ChangePasswordController extends Controller
 {
-    /**
-     * @var \Illuminate\Contracts\Events\Dispatcher
-     */
-    private $eventDispatcher;
-
-    /**
-     * @var \UonSoftware\LaraAuth\Contracts\ChangePasswordContract
-     */
-    private $changePasswordService;
-
-    /**
-     * @var \Tymon\JWTAuth\Manager
-     */
-    private $jwtManager;
-
-    /**
-     * @var \Tymon\JWTAuth\Factory
-     */
-    private $payloadFactory;
-
     /**
      * @var \Illuminate\Contracts\Config\Repository
      */
     private $config;
 
-    public function __construct(
-        EventDispatcher $eventDispatcher,
-        ChangePasswordContract $changePasswordService,
-        JwtManager $manager,
-        Config $config
-    ) {
-        $this->eventDispatcher = $eventDispatcher;
-        $this->changePasswordService = $changePasswordService;
-        $this->jwtManager = $manager;
-        $this->payloadFactory = $manager->getPayloadFactory();
+    public function __construct(Config $config)
+    {
         $this->config = $config;
     }
 
-    public function requestNewPassword(NewPasswordRequest $request)
+    public function requestNewPassword(NewPasswordRequest $request): JsonResponse
     {
         $email = $request->input('email');
         $userModel = $this->config->get('lara_auth.user_model');
@@ -65,38 +35,28 @@ class ChangePasswordController extends Controller
                 ->firstOrFail();
 
             event(new RequestNewPasswordEvent($email));
-            return response()->json(['message' => 'Your email has been sent'], 200);
+            return new JsonResponse(['message' => 'Your email has been sent'], 200);
         } catch (ModelNotFoundException $e) {
-            return response()->json(
-                [
-                    'message' => 'User with email ' . $email . ' is not found',
-                ],
-                404
-            );
+            return new JsonResponse(['message' => "User with email {$email} is not found"], 404);
         }
     }
 
-    public function changePassword(ChangePasswordRequest $request)
-    {
-        $passwordDto = new PasswordReset(
+    public function changePassword(
+        ChangePasswordRequest $request,
+        UpdateUserPasswordContract $updateUserPassword
+    ): JsonResponse {
+        try {
+            $updateUserPassword->updatePassword($request->user(), $request->input('password'));
+        } catch (NullReferenceException $e) {
+            return new JsonResponse(['message' => 'User not found'], 404);
+        } catch (ThrowableAlias $e) {
+            return new JsonResponse(['message' => 'An error has occurred'], 500);
+        }
+
+        return new JsonResponse(
             [
-                'user'     => $request->user(),
-                'password' => $request->input('password'),
+                'message' => 'Your password has been changed successfully',
             ]
         );
-
-        try {
-            $this->changePasswordService->changePassword($passwordDto);
-
-            return response()->json(
-                [
-                    'message' => 'Your password has been changed successfully',
-                ]
-            );
-        } catch (PasswordUpdateException $e) {
-            return response()->json(['message' => $e->getMessage()], 500);
-        } catch (PayloadException $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
-        }
     }
 }

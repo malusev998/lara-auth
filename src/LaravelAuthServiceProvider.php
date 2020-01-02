@@ -29,7 +29,6 @@ class LaravelAuthServiceProvider extends ServiceProvider
 
         $this->app->singleton(UpdateUserPasswordContract::class, UpdateUserPasswordService::class);
         $this->app->singleton(LoginContract::class, LoginService::class);
-        $this->app->singleton(ChangePasswordContract::class, ChangePasswordService::class);
     }
 
     /**

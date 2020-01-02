@@ -4,6 +4,8 @@
 namespace UonSoftware\LaraAuth\Contracts;
 
 
+use UonSoftware\LaraAuth\Exceptions\NullReferenceException;
+
 /**
  * Interface UpdateUserPasswordContract
  *
@@ -12,8 +14,11 @@ namespace UonSoftware\LaraAuth\Contracts;
 interface UpdateUserPasswordContract
 {
     /**
-     * @param \App\User|integer|string $user
-     * @param  string  $newPassword
+     * @throws \Throwable
+     * @throws NullReferenceException
+     *
+     * @param integer|string $user
+     * @param string         $newPassword
      *
      * @return bool
      */
